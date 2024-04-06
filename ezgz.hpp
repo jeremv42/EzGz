@@ -897,6 +897,8 @@ public:
 #ifndef EZGZ_NO_FILE
 	IDeflateArchive(const std::string& fileName) : input([file = std::make_shared<std::ifstream>(fileName, std::ios::binary)] (std::span<uint8_t> batch) mutable {
 		if (!file->good()) {
+			if (file->eof())
+				return 0;
 			throw std::runtime_error("Can't read file");
 		}
 		file->read(reinterpret_cast<char*>(batch.data()), batch.size());
