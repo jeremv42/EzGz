@@ -151,10 +151,32 @@ public:
 	}
 };
 
+class Adler32 {
+	uint32_t a = 1;
+	uint32_t b = 0;
+
+public:
+	uint32_t operator() () { return (b << 16) | a; }
+	uint32_t operator() (std::span<const uint8_t> input) {
+		for (auto it : input) {
+			a = (a + it) % 65521;
+			b = (b + a) % 65521;
+		}
+		return (b << 16) | a;
+	}
+};
+
 struct DefaultDecompressionSettings : MinDecompressionSettings {
 	constexpr static int maxOutputBufferSize = 100000;
 	constexpr static int inputBufferSize = 100000;
 	using Checksum = FastCrc32;
+	constexpr static bool verifyChecksum = true;
+};
+struct DefaultZlibSettings : MinDecompressionSettings {
+	constexpr static int maxOutputBufferSize = 64 * 1024;
+	constexpr static int minOutputBufferSize = 32 * 1024;
+	constexpr static int inputBufferSize = 64 * 1024;
+	using Checksum = Adler32;
 	constexpr static bool verifyChecksum = true;
 };
 
@@ -1148,6 +1170,49 @@ public:
 
 // Most obvious usage, default settings
 using IGzStream = BasicIGzStream<>;
+
+
+
+template <BasicStringType StringType>
+struct IZlibStreamInfo {
+	uint8_t cmf = 0;
+	uint8_t flags = 0;
+
+	template<DecompressionSettings Settings>
+	IZlibStreamInfo(Detail::ByteInput<Settings>& input) {
+		this->cmf = input.template getInteger<uint8_t>();
+		this->flags = input.template getInteger<uint8_t>();
+	}
+};
+// Parses a zlib stream
+template <DecompressionSettings Settings = DefaultZlibSettings>
+class BasicIZlibStream : public IDeflateArchive<Settings> {
+	IZlibStreamInfo<typename Settings::StringType> parsedHeader;
+	using Deflate = IDeflateArchive<Settings>;
+	void onFinish() override {
+		uint32_t expectedCrc = Deflate::input.template getInteger<uint32_t>();
+		expectedCrc = 0
+			| ((expectedCrc >> 24) & 0x000000FF)
+			| ((expectedCrc >> 8) & 0x0000FF00)
+			| ((expectedCrc << 8) & 0x00FF0000)
+			| ((expectedCrc << 24) & 0xFF000000);
+		if constexpr (Settings::verifyChecksum) {
+			auto realCrc = Deflate::output.getChecksum()();
+			if (expectedCrc != realCrc)
+				throw std::runtime_error("Zlib stream's Adler32 checksum doesn't match the calculated checksum");
+		}
+	}
+
+public:
+	BasicIZlibStream(std::function<int(std::span<uint8_t> batch)> readMoreFunction) : Deflate(readMoreFunction), parsedHeader(Deflate::input) {}
+	BasicIZlibStream(const std::string& fileName) : Deflate(fileName), parsedHeader(Deflate::input) {}
+	BasicIZlibStream(std::span<const uint8_t> data) : Deflate(data), parsedHeader(Deflate::input) {}
+
+	const IZlibStreamInfo<typename Settings::StringType>& info() const {
+		return parsedHeader;
+	}
+};
+using IZlibStream = BasicIZlibStream<>;
 
 } // namespace EzGz
 
