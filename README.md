@@ -1,3 +1,9 @@
+# Warning
+In this current state, the zlib part doesn't work correctly, don't use.
+
+I found an issue with IO, the lib will read a bit too much of the input stream so the Adler32 check is incorrect.
+
+
 # EzGz
 A single header library for easily and quickly decompressing Gz archives, written in modern C++. It's designed to be both easy to use and highly performant.
 
